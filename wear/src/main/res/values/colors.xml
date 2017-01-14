@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="background">#5D4037</color>
+    <color name="background">#795548</color>5D4037
+    <color name="background_tapped">#5D4037</color>
     <color name="digital_text">#ffffff</color>
-    <color name="digital_text_date">#e7e7e7</color>
+    <color name="digital_text_date">#dcdbdb</color>
 </resources>

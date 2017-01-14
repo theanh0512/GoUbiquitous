@@ -32,6 +32,7 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Message;
 import android.support.annotation.NonNull;
+import android.support.v4.content.ContextCompat;
 import android.support.wearable.watchface.CanvasWatchFaceService;
 import android.support.wearable.watchface.WatchFaceStyle;
 import android.text.format.Time;
@@ -119,15 +120,15 @@ public class WatchFaceService extends CanvasWatchFaceService {
         Paint mHighPaint;
         Paint mLowPaint;
         Paint mIconPaint;
-        Paint mDatePaint;
+        Paint mTextPaintTemp;
         Paint mTextPaintDate;
         boolean mAmbient;
-        Time mTime;
+        Calendar mCalendar;
         final BroadcastReceiver mTimeZoneReceiver = new BroadcastReceiver() {
             @Override
             public void onReceive(Context context, Intent intent) {
-                mTime.clear(intent.getStringExtra("time-zone"));
-                mTime.setToNow();
+                mCalendar.setTimeZone(TimeZone.getDefault());
+                invalidate();
             }
         };
         int mTapCount;
@@ -142,6 +143,9 @@ public class WatchFaceService extends CanvasWatchFaceService {
         float mYOffsetIcon;
         float mXOffsetTemp;
         float mYOffsetTemp;
+        float mYOffsetLine;
+        float mXOffsetLineStart;
+        float mXOffsetLineStop;
 
         /**
          * Whether the display supports fewer bits for each color in ambient mode. When true, we
@@ -178,6 +182,7 @@ public class WatchFaceService extends CanvasWatchFaceService {
                     .addConnectionCallbacks(this)
                     .addOnConnectionFailedListener(this)
                     .build();
+            mCalendar = Calendar.getInstance();
 
             Resources resources = WatchFaceService.this.getResources();
 //            mYOffset = resources.getDimension(R.dimen.digital_y_offset);
@@ -204,6 +209,9 @@ public class WatchFaceService extends CanvasWatchFaceService {
             mXOffsetDate = resources.getDimension(R.dimen.digital_x_offset_date);
             mYOffsetIcon = resources.getDimension(R.dimen.digital_y_offset_icon);
             mYOffsetTemp= resources.getDimension(R.dimen.digital_y_offset_temp);
+            mYOffsetLine= resources.getDimension(R.dimen.digital_y_offset_line);;
+            mXOffsetLineStart= resources.getDimension(R.dimen.digital_x_offset_line_start);;
+            mXOffsetLineStop= resources.getDimension(R.dimen.digital_x_offset_line_stop);;
 
             mBackgroundPaint = new Paint();
             mBackgroundPaint.setColor(resources.getColor(R.color.background));
@@ -211,13 +219,13 @@ public class WatchFaceService extends CanvasWatchFaceService {
             mTextPaint = createTextPaint(resources.getColor(R.color.digital_text));
             mTextPaintDate = new Paint();
             mTextPaintDate = createTextPaint(resources.getColor(R.color.digital_text_date));
-
-            mTime = new Time();
+            mIconPaint = new Paint();
+            mTextPaintTemp = new Paint();
+            mTextPaintTemp = createTextPaint(resources.getColor(R.color.digital_text));
 
             mHighTemp = NOT_AVAILABLE;
             mLowTemp = NOT_AVAILABLE;
             mIcon = null;
-            mDate = getFormattedDate(System.currentTimeMillis());
         }
 
         @Override
@@ -243,9 +251,8 @@ public class WatchFaceService extends CanvasWatchFaceService {
                 mGoogleApiClient.connect();
                 registerReceiver();
 
-                // Update time zone in case it changed while we weren't visible.
-                mTime.clear(TimeZone.getDefault().getID());
-                mTime.setToNow();
+                mCalendar.setTimeZone(TimeZone.getDefault());
+                invalidate();
             } else {
                 unregisterReceiver();
 
@@ -292,14 +299,18 @@ public class WatchFaceService extends CanvasWatchFaceService {
                     ? R.dimen.digital_x_offset_icon_round : R.dimen.digital_x_offset_icon);
             mXOffsetTemp = resources.getDimension(isRound
                     ? R.dimen.digital_x_offset_temp_round : R.dimen.digital_x_offset_temp);
+            mXOffsetDate = resources.getDimension(isRound
+                    ? R.dimen.digital_x_offset_date_round : R.dimen.digital_x_offset_date);
             float textSize = resources.getDimension(isRound
                     ? R.dimen.digital_text_size_round : R.dimen.digital_text_size);
             float textSizeDate = resources.getDimension(isRound
                     ? R.dimen.digital_text_size_round_date : R.dimen.digital_text_size_date);
+            float textSizeTemp = resources.getDimension(isRound
+                    ? R.dimen.digital_text_size_round_temp : R.dimen.digital_text_size_temp);
 
             mTextPaint.setTextSize(textSize);
             mTextPaintDate.setTextSize(textSizeDate);
-
+            mTextPaintTemp.setTextSize(textSizeTemp);
         }
 
         @Override
@@ -338,7 +349,6 @@ public class WatchFaceService extends CanvasWatchFaceService {
          */
         @Override
         public void onTapCommand(int tapType, int x, int y, long eventTime) {
-            Resources resources = WatchFaceService.this.getResources();
             switch (tapType) {
                 case TAP_TYPE_TOUCH:
                     // The user has started touching the screen.
@@ -349,8 +359,8 @@ public class WatchFaceService extends CanvasWatchFaceService {
                 case TAP_TYPE_TAP:
                     // The user has completed the tap gesture.
                     mTapCount++;
-                    mBackgroundPaint.setColor(resources.getColor(mTapCount % 2 == 0 ?
-                            R.color.background : R.color.background2));
+                    mBackgroundPaint.setColor(ContextCompat.getColor(getApplicationContext(),(mTapCount % 2 == 0 ?
+                            R.color.background : R.color.background_tapped)));
                     break;
             }
             invalidate();
@@ -360,45 +370,29 @@ public class WatchFaceService extends CanvasWatchFaceService {
         public void onDraw(Canvas canvas, Rect bounds) {
             // Draw the background.
 
-
             if (isInAmbientMode()) {
                 canvas.drawColor(Color.BLACK);
             } else {
                 canvas.drawRect(0, 0, bounds.width(), bounds.height(), mBackgroundPaint);
+                canvas.drawRect(0, 0, bounds.width(), bounds.height(), mBackgroundPaint);
+                if (mIcon!=null && !isInAmbientMode())
+                    canvas.drawBitmap(mIcon, mXOffsetIcon, mYOffsetIcon, mIconPaint);
+                //to do: create high and low text paint
+                if (!mHighTemp.equals(NOT_AVAILABLE) && !mLowTemp.equals(NOT_AVAILABLE))
+                    canvas.drawText(mHighTemp + mLowTemp, mXOffsetTemp, mYOffsetTemp, mTextPaintTemp);
             }
 
-            // Draw H:MM in ambient mode or H:MM:SS in interactive mode.
-            mTime.setToNow();
-            String text = String.format(Locale.getDefault(), "%d:%02d", mTime.hour, mTime.minute);
+            long now = System.currentTimeMillis();
+            mCalendar.setTimeInMillis(now);
 
-            Log.i(LOG_TAG, "SECONDS REMOVED");
-
+            SimpleDateFormat dateFormat = new SimpleDateFormat("EEE, MMM dd yyyy");
+            String timeText = String.format("%d:%02d", mCalendar.get(Calendar.HOUR),
+                    mCalendar.get(Calendar.MINUTE));
+            canvas.drawText(timeText, mXOffset, mYOffset, mTextPaint);
+            String dateText = dateFormat.format(mCalendar.getTime()).toUpperCase();
+            canvas.drawText(dateText, mXOffsetDate, mYOffsetDate, mTextPaintDate);
             float centerX = bounds.centerX();
-            float centerY = bounds.centerY();
-
-
-
-            canvas.drawText(text, centerX - mTextPaint.measureText(text)/2, centerY, mTextPaint);
-
-            canvas.drawText(mDate, centerX - mDatePaint.measureText(mDate)/2, centerY + 40, mDatePaint);
-            Log.i(LOG_TAG, "DATE ADDED");
-
-            if (!mHighTemp.equals(NOT_AVAILABLE) && !mLowTemp.equals(NOT_AVAILABLE)){
-                canvas.drawText(mHighTemp, centerX - mHighPaint.measureText(mHighTemp) - 8, centerY + 80, mHighPaint);
-                canvas.drawText(mLowTemp, centerX + 8, centerY + 80, mLowPaint);
-            }
-
-            if (mIcon!=null && !isInAmbientMode()) {
-                canvas.drawBitmap(mIcon, centerX - mIcon.getWidth()/2, centerY - 100, mIconPaint);
-            }
-
-        }
-
-
-        public String getFormattedDate(long millis){
-            SimpleDateFormat formatter = new SimpleDateFormat("EEE MMM FF", Locale.getDefault());
-            return formatter.format(new Date(millis));
-
+            canvas.drawLine(centerX-20,mYOffsetLine,centerX+20,mYOffsetLine,mTextPaintDate);
         }
 
         /**
@@ -476,7 +470,7 @@ public class WatchFaceService extends CanvasWatchFaceService {
                             InputStream is = getFdForAssetResult.getInputStream();
                             if (is != null){
                                 Bitmap icon = BitmapFactory.decodeStream(is);
-                                mIcon = Bitmap.createScaledBitmap(icon, 40, 40, false);
+                                mIcon = Bitmap.createScaledBitmap(icon, 60, 60, false);
                             }
                         }
                     });

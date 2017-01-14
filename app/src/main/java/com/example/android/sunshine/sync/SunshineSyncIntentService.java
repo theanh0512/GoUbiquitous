@@ -88,12 +88,21 @@ public class SunshineSyncIntentService extends IntentService implements
          * The MAIN_FORECAST_PROJECTION array passed in as the second parameter is defined in our WeatherContract
          * class and is used to limit the columns returned in our cursor.
          */
+        Uri forecastQueryUri = WeatherContract.WeatherEntry.CONTENT_URI;
+                /* Sort order: Ascending by date */
+        String sortOrder = WeatherContract.WeatherEntry.COLUMN_DATE + " ASC";
+                /*
+                 * A SELECTION in SQL declares which rows you'd like to return. In our case, we
+                 * want all weather data from today onwards that is stored in our weather table.
+                 * We created a handy method to do that in our WeatherEntry class.
+                 */
+        String selection = WeatherContract.WeatherEntry.getSqlSelectForTodayOnwards();
         Cursor todayWeatherCursor = context.getContentResolver().query(
-                todaysWeatherUri,
+                forecastQueryUri,
                 WEATHER_NOTIFICATION_PROJECTION,
+                selection,
                 null,
-                null,
-                null);
+                sortOrder);
         if (todayWeatherCursor.moveToFirst()) {
             Log.d("GoogleClient","cursor move to first");
             weatherId = todayWeatherCursor.getInt(INDEX_WEATHER_ID);
