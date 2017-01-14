@@ -1,5 +1,5 @@
 <resources>
     <string name="app_name">Sunshine.app</string>
     <string name="my_analog_name">My Analog</string>
-    <string name="my_digital_name">abc</string>
+    <string name="my_digital_name">Weather</string>
 </resources>
