@@ -15,10 +15,15 @@
  */
 package com.example.android.sunshine;
 
+import android.content.Context;
 import android.content.Intent;
 import android.database.Cursor;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.net.Uri;
 import android.os.Bundle;
+import android.support.annotation.NonNull;
+import android.support.annotation.Nullable;
 import android.support.v4.app.LoaderManager;
 import android.support.v4.content.CursorLoader;
 import android.support.v4.content.Loader;
@@ -35,24 +40,28 @@ import android.widget.ProgressBar;
 import com.example.android.sunshine.data.SunshinePreferences;
 import com.example.android.sunshine.data.WeatherContract;
 import com.example.android.sunshine.sync.SunshineSyncUtils;
+import com.example.android.sunshine.utilities.SunshineWeatherUtils;
+import com.google.android.gms.common.ConnectionResult;
+import com.google.android.gms.common.api.GoogleApiClient;
+import com.google.android.gms.wearable.Asset;
+import com.google.android.gms.wearable.PutDataMapRequest;
+import com.google.android.gms.wearable.PutDataRequest;
+import com.google.android.gms.wearable.Wearable;
+
+import java.io.ByteArrayOutputStream;
 
 public class MainActivity extends AppCompatActivity implements
         LoaderManager.LoaderCallbacks<Cursor>,
-        ForecastAdapter.ForecastAdapterOnClickHandler {
+        ForecastAdapter.ForecastAdapterOnClickHandler,
+        GoogleApiClient.ConnectionCallbacks,
+        GoogleApiClient.OnConnectionFailedListener {
 
-    private final String TAG = MainActivity.class.getSimpleName();
-
-    /*
-     * The columns of data that we are interested in displaying within our MainActivity's list of
-     * weather data.
-     */
     public static final String[] MAIN_FORECAST_PROJECTION = {
             WeatherContract.WeatherEntry.COLUMN_DATE,
             WeatherContract.WeatherEntry.COLUMN_MAX_TEMP,
             WeatherContract.WeatherEntry.COLUMN_MIN_TEMP,
             WeatherContract.WeatherEntry.COLUMN_WEATHER_ID,
     };
-
     /*
      * We store the indices of the values in the array of Strings above to more quickly be able to
      * access the data from our query. If the order of the Strings above changes, these indices
@@ -62,8 +71,14 @@ public class MainActivity extends AppCompatActivity implements
     public static final int INDEX_WEATHER_MAX_TEMP = 1;
     public static final int INDEX_WEATHER_MIN_TEMP = 2;
     public static final int INDEX_WEATHER_CONDITION_ID = 3;
-
-
+    /*
+     * The columns of data that we are interested in displaying within our MainActivity's list of
+     * weather data.
+     */
+    private static final String WEAR_PATH = "/wear";
+    private static final String HIGH_TEMP_KEY = "high";
+    private static final String LOW_TEMP_KEY = "low";
+    private static final String ICON_ASSET_KEY = "key";
     /*
      * This ID will be used to identify the Loader responsible for loading our weather forecast. In
      * some cases, one Activity can deal with many Loaders. However, in our case, there is only one.
@@ -72,19 +87,34 @@ public class MainActivity extends AppCompatActivity implements
      * it is unique and consistent.
      */
     private static final int ID_FORECAST_LOADER = 44;
-
+    private final String TAG = MainActivity.class.getSimpleName();
+    GoogleApiClient mGoogleApiClient;
+    int weatherId;
+    double high;
+    double low;
     private ForecastAdapter mForecastAdapter;
     private RecyclerView mRecyclerView;
     private int mPosition = RecyclerView.NO_POSITION;
 
     private ProgressBar mLoadingIndicator;
 
+    private static Asset createAssetFromBitmap(Bitmap bitmap) {
+        final ByteArrayOutputStream byteStream = new ByteArrayOutputStream();
+        bitmap.compress(Bitmap.CompressFormat.PNG, 100, byteStream);
+        return Asset.createFromBytes(byteStream.toByteArray());
+    }
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_forecast);
         getSupportActionBar().setElevation(0f);
+        mGoogleApiClient = new GoogleApiClient.Builder(this)
+                .addConnectionCallbacks(this)
+                .addOnConnectionFailedListener(this)
+                .addApi(Wearable.API)
+                .build();
+        mGoogleApiClient.connect();
 
         /*
          * Using findViewById, we get a reference to our RecyclerView from xml. This allows us to
@@ -156,6 +186,21 @@ public class MainActivity extends AppCompatActivity implements
 
     }
 
+    private void updateWear(Context context, double high, double low, int weatherId) {
+        Log.d("GoogleClient", "called send data");
+        Bitmap icon = BitmapFactory.decodeResource(context.getResources(),
+                SunshineWeatherUtils.getSmallArtResourceIdForWeatherCondition(weatherId));
+        Asset asset = createAssetFromBitmap(icon);
+        PutDataMapRequest dataMap = PutDataMapRequest.create(WEAR_PATH);
+
+        dataMap.getDataMap().putString(HIGH_TEMP_KEY, SunshineWeatherUtils.formatTemperature(this, high));
+        dataMap.getDataMap().putString(LOW_TEMP_KEY, SunshineWeatherUtils.formatTemperature(this, low));
+        dataMap.getDataMap().putAsset(ICON_ASSET_KEY, asset);
+        PutDataRequest request = dataMap.asPutDataRequest();
+        request.setUrgent();
+        Wearable.DataApi.putDataItem(mGoogleApiClient, request);
+    }
+
     /**
      * Uses the URI scheme for showing a location found on a map in conjunction with
      * an implicit Intent. This super-handy Intent is detailed in the "Common Intents" page of
@@ -223,7 +268,7 @@ public class MainActivity extends AppCompatActivity implements
 
     /**
      * Called when a Loader has finished loading its data.
-     *
+     * <p>
      * NOTE: There is one small bug in this code. If no data is present in the cursor do to an
      * initial load being performed with no access to internet, the loading indicator will show
      * indefinitely, until data is present from the ContentProvider. This will be fixed in a
@@ -234,12 +279,17 @@ public class MainActivity extends AppCompatActivity implements
      */
     @Override
     public void onLoadFinished(Loader<Cursor> loader, Cursor data) {
-
-
         mForecastAdapter.swapCursor(data);
         if (mPosition == RecyclerView.NO_POSITION) mPosition = 0;
         mRecyclerView.smoothScrollToPosition(mPosition);
         if (data.getCount() != 0) showWeatherDataView();
+        if (data.moveToFirst()) {
+            Log.d("GoogleClient", "cursor move to first");
+            weatherId = data.getInt(INDEX_WEATHER_CONDITION_ID);
+            high = data.getDouble(INDEX_WEATHER_MAX_TEMP);
+            low = data.getDouble(INDEX_WEATHER_MIN_TEMP);
+            updateWear(this, high, low, weatherId);
+        }
     }
 
     /**
@@ -255,6 +305,21 @@ public class MainActivity extends AppCompatActivity implements
          * displaying the data.
          */
         mForecastAdapter.swapCursor(null);
+    }
+
+    @Override
+    public void onConnected(@Nullable Bundle bundle) {
+        Log.d("GoogleClient", "Connected");
+    }
+
+    @Override
+    public void onConnectionSuspended(int i) {
+
+    }
+
+    @Override
+    public void onConnectionFailed(@NonNull ConnectionResult connectionResult) {
+
     }
 
     /**
@@ -303,10 +368,8 @@ public class MainActivity extends AppCompatActivity implements
      * This is where we inflate and set up the menu for this Activity.
      *
      * @param menu The options menu in which you place your items.
-     *
      * @return You must return true for the menu to be displayed;
-     *         if you return false it will not be shown.
-     *
+     * if you return false it will not be shown.
      * @see #onPrepareOptionsMenu
      * @see #onOptionsItemSelected
      */
@@ -324,7 +387,6 @@ public class MainActivity extends AppCompatActivity implements
      * Callback invoked when a menu item was selected from this Activity's menu.
      *
      * @param item The menu item that was selected by the user
-     *
      * @return true if you handle the menu click here, false otherwise
      */
     @Override
